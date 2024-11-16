@@ -1,0 +1,6 @@
+name=EtherHammerX
+poster=./poster.png
+description=A multiplayer Anticheat for Project Zomboid.
+id=etherhammerx
+url=https://github.com/asledgehammer/EtherHammerX
+require=asledgehammer_utilities,modloader

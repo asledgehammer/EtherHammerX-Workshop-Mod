@@ -1,10 +1,6 @@
 local ModLoader = require 'asledgehammer/modloader/ModLoader';
 local ZedCrypt = require 'asledgehammer/encryption/ZedCrypt';
-
-local delay = function()
-
-end
-
+local ZedUtils = require 'asledgehammer/util/ZedUtils';
 
 (function()
     local mod = 'EtherHammerX';
@@ -14,10 +10,8 @@ end
     end
 
     local onGameStart = function()
-
         -- Request the client-code from the server.
         ModLoader.requestServerFile('EtherHammerX', 'EtherHammerX_Client.lua', true, function(module, path, result, data)
-            
             -- Handle non-installed / missing result.
             if result == ModLoader.RESULT_FILE_NOT_FOUND then
                 info('File not installed on server. Ignoring..');
@@ -33,21 +27,9 @@ end
 
             -- Invoke the code.
             loadstring(decryptedData)();
-
         end);
     end
 
     -- Delay the request by 5 or so ticks to give time for LuaNet to start.
-    local ticks = 0;
-    --- @type fun(): void | nil
-    local onTick = nil;
-    onTick = function()
-        if ticks < 5 then
-            ticks = ticks + 1;
-            return;
-        end
-        Events.OnTickEvenPaused.Remove(onTick);
-        onGameStart();
-    end
-    Events.OnTickEvenPaused.Add(onTick);
+    ZedUtils.delay(5, onGameStart);
 end)();
