@@ -260,7 +260,7 @@ if not isServer() then return end
         for moduleID, moduleCfg in pairs(variables.MODULES) do
             info("Loading module: " .. moduleCfg.name .. '..');
             local func = 'return function() end';
-            local moduleClientPath = 'modules/' .. moduleID .. '_client.lua';
+            local moduleClientPath = 'modules/' .. moduleID .. '.lua';
             ModLoader.requestServerFile(mod, moduleClientPath, function(result, data)
                 if result == ModLoader.RESULT_FILE_NOT_FOUND then
                     info('The file "' .. moduleClientPath .. '" is missing.');
