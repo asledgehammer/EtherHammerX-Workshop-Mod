@@ -174,6 +174,7 @@ if not isServer() then return end
                 end
             end
 
+            load('REPORT_COMMAND', 'string', randomString(8, 32));
             load('HANDSHAKE_KEY', 'string', randomString(8, 32));
             load('HANDSHAKE_REQUEST_COMMAND', 'string', randomString(8, 32));
             load('HEARTBEAT_RESPONSE_COMMAND', 'string', randomString(8, 32));
