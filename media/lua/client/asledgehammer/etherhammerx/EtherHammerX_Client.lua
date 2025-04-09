@@ -1,20 +1,24 @@
+---[[
+--- EtherHammerX - Client bootloader. Handles requesting and loading the anti-cheat framework.
+---
+--- @author asledgehammer, JabDoesThings 2025
+---]]
+
 local ModLoader = require 'asledgehammer/modloader/ModLoader';
 local ZedCrypt = require 'asledgehammer/encryption/ZedCrypt';
 
+local mod = 'EtherHammerX';
+local info = function(msg)
+    print('[' .. mod .. '] :: ' .. msg);
+end
+
 (function()
-    local mod = 'EtherHammerX';
-    local info = function(msg)
-        print('[' .. mod .. '] :: ' .. msg);
-    end
     local onGameStart = function()
-        -- Request the client-code from the server.
         ModLoader.requestServerFile('EtherHammerX', 'client', function(result, data)
-            -- Handle non-installed / missing result.
             if result == ModLoader.RESULT_FILE_NOT_FOUND then
-                info('File not installed on server. Ignoring..');
+                info('File not installed on server. The client will likely be kicked for not loading the anti-cheat.');
                 return;
             end
-            -- Invoke the code.
             loadstring(ZedCrypt.decrypt(data, '__EtherHammerX__'))();
         end);
     end

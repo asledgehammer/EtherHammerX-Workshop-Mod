@@ -1,3 +1,10 @@
+---[[
+--- EtherHammerX - Server bootloader. Handles loading the anti-cheat framework and prepares it by injecting variables and
+--- minifying / obfuscating the code.
+---
+--- @author asledgehammer, JabDoesThings 2025
+---]]
+
 --- @alias ModLoaderCallback fun(result: number, data: string | nil): string | nil
 
 --- @type {RESULT_FILE_NOT_FOUND: number, requestServerFile: fun(mod: string, path: string, cacheOrResult: boolean | ModLoaderCallback, result?: ModLoaderCallback): void}
@@ -10,17 +17,58 @@ local randomString = require 'asledgehammer/randomstring';
 --- @type fun(code: string): string
 local minify = (require 'asledgehammer/util/minify').minify;
 
+local tableutils = require 'asledgehammer/util/tableutils';
+
+--- @type fun(code: string, vars: table<string, {type: 'raw'|'function'|'func'|'table'|'number'|'string', value: any}>)
+local inject = require 'asledgehammer/util/codeinject';
+
 if not isServer() then return end
 
+local mod = 'EtherHammerX';
+local info = function(msg)
+    print('[' .. mod .. '] :: ' .. msg);
+end
+
 (function()
-    local DEFAULT_KEY_CLIENT = 'function(a) return a:getOnlineID()..\'_\'..a:getUsername() end';
-    local DEFAULT_KEY_SERVER = 'function(a) return a:getOnlineID()..\'_\'..getTimeInMillis() end';
+    -- NOTE: Putting this here due to an update where the code itself might not have `client_api.lua` yet.
+    local clientAPI =
+        "local a=false;local b={}function b.isDisconnected()return a end;function b.disconnect()a=true;setGameSpeed(1)" ..
+        "pauseSoundAndMusic()setShowPausedMessage(true)getCore():quit()end;function b.getGlobalClasses()local c={}for " ..
+        "d,e in pairs(_G)do if type(e)=='table'and e.Type~=nil then table.insert(c,{globalName=d,typeName=e.Type})end " ..
+        "end;table.sort(c,function(f,g)return f.globalName<g.globalName end)return c end;function b.getGlobalTables()" ..
+        "local c={}for d,e in pairs(_G)do if type(e)=='table'then table.insert(c,d)end end;table.sort(c,function(f,g)" ..
+        "return f:upper()<g:upper()end)return c end;function b.getGlobalFunctions()local c={}for d,e in pairs(_G)do if " ..
+        "type(e)=='function'and string.find(tostring(e),'function ')==1 then table.insert(c,d)end end;table.sort(c," ..
+        "function(f,g)return f:upper()<g:upper()end)return c end;function b.arrayContains(c,e)for h,i in ipairs(c)do " ..
+        "if e==i then return true end end;return false end;function b.anyExists(j,k)for l=1,#k do if b.arrayContains" ..
+        "(j,k[l])then return true end end;return false end;function b.printGlobalClasses(m)m=m or b.getGlobalClasses()" ..
+        "local n='Global Class(es) ('..tostring(#m)..'):\\n'for h,o in ipairs(m)do n=n..'\\t'..tostring(o.globalName)..' " ..
+        "(class.Type = '..tostring(o.typeName)..')\\n'end;print(n)end;function b.printGlobalTables(p)p=p or " ..
+        "b.getGlobalTables()local n='Global Table(s) ('..tostring(#p)..'):\\n'for h,d in ipairs(p)do n=n..'\\t'.." ..
+        "tostring(d)..'\\n'end;print(n)end;function b.printGlobalFunctions(q)q=q or b.getGlobalFunctions()local " ..
+        "n='Global function(s) ('..tostring(#q)..'):\\n'for h,r in ipairs(q)do n=n..'\\t'..tostring(r)..'\\n'end;" ..
+        "print(n)end;function b.ticketExists(s,t,u)local v=function()end;v=function(w)Events.ViewTickets.Remove(v)local " ..
+        "x=w:size()-1;for l=0,x do local y=w:get(l)if y:getAuthor()==s and t==y:getMessage()then u(true)return end end;" ..
+        "u(false)end;Events.ViewTickets.Add(v)getTickets(s)end;function b.submitTicket(t,u)local z=getPlayer()local " ..
+        "A=z:getUsername()b.ticketExists(A,t,function(B)if not B then addTicket(A,t,-1)end;u()end)end;function " ..
+        "b.report(type,C,D)local t=tostring(type)if C then t=t..' ('..tostring(C)..')'end;print('[EtherHammerX] :: '..t)" ..
+        "if D then b.disconnect()end end;return b";
+
+    local DEFAULT_KEY_CLIENT = 'local a=require"asledgehammer/randomstring"local b=nil;return function(c)if not b then ' ..
+        'b=newrandom()b:seed(c:getSteamID())end;return a(32,48,b)end';
+    local DEFAULT_KEY_SERVER = 'local a=require"asledgehammer/randomstring"return function(b)return a(32,48)end';
+
+    local variables = {
+        KEY = 'basic',
+        MODULES = { etherhack = { name = 'etherhack', runOnce = false } },
+    };
 
     local injectVariables = {
         HANDSHAKE_KEY = { type = 'string', value = randomString(32, 48) },
         HANDSHAKE_REQUEST_COMMAND = { type = 'string', value = randomString(32, 48) },
         HEARTBEAT_RESPONSE_COMMAND = { type = 'string', value = randomString(32, 48) },
         HEARTBEAT_REQUEST_COMMAND = { type = 'string', value = randomString(32, 48) },
+        REPORT_COMMAND = { type = 'string', value = randomString(32, 48) },
         MODULE_ID = { type = 'string', value = randomString(32, 48) },
         TIME_TO_GREET = { type = 'number', value = 10 },
         TIME_TO_VERIFY = { type = 'number', value = 120 },
@@ -30,121 +78,10 @@ if not isServer() then return end
         SUBMIT_TICKET_ON_KICK = { type = 'boolean', value = true },
     };
 
-    local variables = {
-        KEY = 'basic',
-        MODULES = {
-            etherhack = {
-                name = 'etherhack',
-                runOnce = false,
-            }
-        },
-    };
-
     local funcVariables = {
         CLIENT_KEY_FUNCTION = { type = 'func', value = DEFAULT_KEY_CLIENT },
         SERVER_KEY_FUNCTION = { type = 'func', value = DEFAULT_KEY_SERVER },
     };
-
-    local mod = 'EtherHammerX';
-
-    local info = function(msg)
-        print('[' .. mod .. '] :: ' .. msg);
-    end
-
-    local function isArray(t)
-        local i = 0;
-        for _ in pairs(t) do
-            i = i + 1;
-            if t[i] == nil then return false end
-        end
-        return true;
-    end
-
-    --- @type fun(t: table): string
-    local tableToString;
-    --- @type fun(v: any, encaseStrings?: boolean): string
-    local anyToString;
-
-    anyToString = function(v, encaseStrings)
-        if encaseStrings == nil then encaseStrings = true end
-        local type = type(v);
-        if type == 'number' then
-            return tostring(v);
-        elseif type == 'boolean' then
-            return tostring(v);
-        elseif type == 'nil' then
-            return 'nil';
-        elseif type == 'table' then
-            return tableToString(v);
-        else
-            if encaseStrings then
-                return '"' .. tostring(v) .. '"';
-            else
-                return tostring(v);
-            end
-        end
-    end
-
-    tableToString = function(t)
-        local s = '';
-        if isArray(t) then
-            for _, v in ipairs(t) do
-                local vStr = anyToString(v);
-                if s == '' then s = vStr else s = s .. ',' .. vStr end
-            end
-        else
-            for k, v in pairs(t) do
-                local vStr = anyToString(v);
-                if s == '' then
-                    s = s .. k .. '=' .. vStr;
-                else
-                    s = s .. ',' .. k .. '=' .. vStr;
-                end
-            end
-        end
-        return '{' .. s .. '}';
-    end
-
-    --- @param code string
-    --- @param vars table<string, {type: 'raw'|'function'|'func'|'table'|'number'|'string', value: any}>
-    ---
-    --- @return string
-    local function inject(code, vars)
-        for id, var in pairs(vars) do
-            if var.type == 'function' or var.type == 'func' then
-                local literalValue = 'loadstring("' .. string.gsub(var.value, '"', '\\"') .. '")()';
-                code = string.gsub(code, '{%s*func%s*=%s*"' .. id .. '"%s*}', literalValue);
-                code = string.gsub(code, "{%s*func%s*=%s*'" .. id .. "'%s*}", literalValue);
-            elseif var.type == 'table' then
-                if type(var.value) == 'string' then
-                    local literalValue = 'loadstring("' .. string.gsub(var.value, '"', '\\"') .. '")()';
-                    code = string.gsub(code, '{%s*table%s*=%s*"' .. id .. '"%s*}', literalValue);
-                    code = string.gsub(code, "{%s*table%s*=%s*'" .. id .. "'%s*}", literalValue);
-                elseif type(var.value) == 'table' then
-                    local literalValue = tableToString(var.value);
-                    code = string.gsub(code, '{%s*table%s*=%s*"' .. id .. '"%s*}', literalValue);
-                    code = string.gsub(code, "{%s*table%s*=%s*'" .. id .. "'%s*}", literalValue);
-                end
-            elseif var.type == 'number' then
-                local literalValue = tostring(var.value);
-                code = string.gsub(code, '{%s*number%s*=%s*"' .. id .. '"%s*}', literalValue);
-                code = string.gsub(code, "{%s*number%s*=%s*'" .. id .. "'%s*}", literalValue);
-            elseif var.type == 'boolean' then
-                local literalValue = tostring(var.value);
-                code = string.gsub(code, '{%s*boolean%s*=%s*"' .. id .. '"%s*}', literalValue);
-                code = string.gsub(code, "{%s*boolean%s*=%s*'" .. id .. "'%s*}", literalValue);
-            elseif var.type == 'raw' then
-                local literalValue = tostring(var.value);
-                code = string.gsub(code, '{%s*raw%s*=%s*"' .. id .. '"%s*}', literalValue);
-                code = string.gsub(code, "{%s*raw%s*=%s*'" .. id .. "'%s*}", literalValue);
-            else
-                local literalValue = '"' .. tostring(var.value) .. '"';
-                code = string.gsub(code, '{%s*%w+%s*=%s*"' .. id .. '"%s*}', literalValue);
-                code = string.gsub(code, "{%s*%w+%s*=%s*'" .. id .. "'%s*}", literalValue);
-            end
-        end
-        return code;
-    end
 
     local onServerStart = function()
         -- MARK: Config
@@ -174,19 +111,13 @@ if not isServer() then return end
                 end
             end
 
-            load('REPORT_COMMAND', 'string', randomString(8, 32));
             load('HANDSHAKE_KEY', 'string', randomString(8, 32));
-            load('HANDSHAKE_REQUEST_COMMAND', 'string', randomString(8, 32));
-            load('HEARTBEAT_RESPONSE_COMMAND', 'string', randomString(8, 32));
-            load('HEARTBEAT_REQUEST_COMMAND', 'string', randomString(8, 32));
-            load('MODULE_ID', 'string', randomString(8, 32));
+            load('MODULES', 'table', { basic = { name = 'EtherHack', options = {} } });
+            load('SHOULD_HEARTBEAT', 'boolean', true);
             load('TIME_TO_GREET', 'number', 10);
             load('TIME_TO_VERIFY', 'number', 120);
-            load('SHOULD_HEARTBEAT', 'boolean', true);
-            load('SUBMIT_TICKET_ON_KICK', 'boolean', true);
             load('TIME_TO_HEARTBEAT', 'number', 20);
             load('TIME_TO_TICK', 'number', 5);
-            load('MODULES', 'table', { basic = { name = 'EtherHack', options = {} } });
         end);
 
         -- MARK: Keys
@@ -195,6 +126,7 @@ if not isServer() then return end
         local codeServerKey = DEFAULT_KEY_SERVER;
         local clientKeyValid = false;
         local serverKeyValid = false;
+        
         local clientKeyPath = 'keys/' .. variables.KEY .. '_client.lua';
         ModLoader.requestServerFile(mod, clientKeyPath, function(result, data)
             if result == ModLoader.RESULT_FILE_NOT_FOUND then
@@ -205,16 +137,12 @@ if not isServer() then return end
                 info('The file "' .. clientKeyPath .. '" exists, but is empty. Using Fallback..');
                 return;
             end
-            -- We pre-escape any double-quotes for reapplciation when injected.
-            -- local code = string.gsub(minify(data), '"', '\\"');
             local code = minify(data);
-
             -- Test compiling and checking type for return of client-key function.
             if type(loadstring(code)()) ~= "function" then
                 info('The file "' .. clientKeyPath .. '" exists, but doesn\'t return a function. Using Fallback..');
                 return;
             end
-
             codeClientKey = code;
             clientKeyValid = true;
         end);
@@ -230,16 +158,12 @@ if not isServer() then return end
                     info('The file "' .. serverKeyPath .. '" exists, but is empty. Using Fallback..');
                     return;
                 end
-                -- -- We pre-escape any double-quotes for reapplciation when injected.
-                -- local code = string.gsub(minify(data), '"', '\\"');
                 local code = minify(data);
-
                 -- Test compiling and checking type for return of client-key function.
                 if type(loadstring(code)()) ~= "function" then
                     info('The file "' .. serverKeyPath .. '" exists, but doesn\'t return a function. Using Fallback..');
                     return;
                 end
-
                 codeServerKey = code;
                 serverKeyValid = true;
             end);
@@ -270,10 +194,8 @@ if not isServer() then return end
                     info('The file "' .. moduleClientPath .. '" exists, but is empty. Using Fallback..');
                     return;
                 end
-
                 -- Pre-escape any double-quotes for reapplciation when injected.
                 local code = string.gsub(minify(data), '"', '\\"');
-
                 info("Compiling module: " .. moduleCfg.name .. '..');
                 -- Test compiling and checking type for return of a function.
                 if type(loadstring(code)()) ~= "function" then
@@ -287,7 +209,10 @@ if not isServer() then return end
             if func then
                 local moduleCode = moduleID ..
                     '={code=loadstring("' ..
-                    func .. '")(), options='.. tableToString(moduleCfg.options or {})..',name="' .. moduleCfg.name .. '",runOnce=' .. tostring(moduleCfg.runOnce) .. '}';
+                    func ..
+                    '")(), options=' ..
+                    tableutils.tableToString(moduleCfg.options or {}) ..
+                    ',name="' .. moduleCfg.name .. '",runOnce=' .. tostring(moduleCfg.runOnce) .. '}';
                 if clientModulesCode == '' then
                     clientModulesCode = moduleCode;
                 else
@@ -297,13 +222,26 @@ if not isServer() then return end
             end
         end
 
-        injectVariables['MODULES'] = { type = 'raw' , value = '{' .. clientModulesCode .. '}' };
+        injectVariables['MODULES'] = { type = 'raw', value = '{' .. clientModulesCode .. '}' };
+
+        -- MARK: API
+
+        -- Load the server-side code and run it.
+        ModLoader.requestServerFile(mod, 'client_api.lua', function(result, data)
+            if result == ModLoader.RESULT_FILE_NOT_FOUND or not data or string.trim(data) == '' then
+                info('File not installed: Zomboid/Lua/ModLoader/mods/EtherHammerX/client_api.lua');
+                return;
+            end
+            -- (Substitute back-slash literals to prevent code from breaking)
+            data = string.gsub(data, '\\', '\\\\');
+            clientAPI = minify(data);
+        end);
 
         -- MARK: Server
 
         -- Create our live / modified variables lua code to inject into server.lua.
 
-        variables.CONFIG = 'return ' .. tableToString(variables) .. ';';
+        variables.CONFIG = 'return ' .. tableutils.tableToString(variables) .. ';';
 
         -- Load the client-side code and cache it as encrypted.
         ModLoader.requestServerFile(mod, 'client.lua', function(result, data)
@@ -311,18 +249,16 @@ if not isServer() then return end
                 info('File not installed: Zomboid/Lua/ModLoader/mods/EtherHammerX/client.lua');
                 return;
             end
-
             info('Injecting config variables: client.lua..');
             data = inject(data, injectVariables);
+            data = inject(data, { CLIENT_API = { type = 'table', value = clientAPI } });
             -- !!! Only inject the client key-fragment function to the client. !!!
             data = inject(data,
                 { CLIENT_KEY_FUNCTION = { type = 'function', value = funcVariables.CLIENT_KEY_FUNCTION } });
-
             -- If the server is debugging their anti-cheat framework, don't minify the package.
             if not variables.DEBUG then
                 data = minify(data);
             end
-
             -- Return the encrypted form of the code to cache it for the client on request.
             return ZedCrypt.encrypt(data, '__EtherHammerX__');
         end);
@@ -335,14 +271,12 @@ if not isServer() then return end
                 info('File not installed: Zomboid/Lua/ModLoader/mods/EtherHammerX/server.lua');
                 return;
             end
-
             info('Injecting config variables: server.lua');
             data = inject(data, injectVariables);
             data = inject(data, {
                 CLIENT_KEY_FUNCTION = { type = 'function', value = funcVariables.CLIENT_KEY_FUNCTION },
                 SERVER_KEY_FUNCTION = { type = 'function', value = funcVariables.SERVER_KEY_FUNCTION }
             });
-
             loadstring(data)();
             info('Successfully loaded.');
         end);
