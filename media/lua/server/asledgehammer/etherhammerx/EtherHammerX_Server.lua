@@ -64,18 +64,28 @@ end
     };
 
     local injectVariables = {
+
+        -- Initial key
         HANDSHAKE_KEY = { type = 'string', value = randomString(32, 48) },
+
+        -- Injected commands
         HANDSHAKE_REQUEST_COMMAND = { type = 'string', value = randomString(32, 48) },
         HEARTBEAT_RESPONSE_COMMAND = { type = 'string', value = randomString(32, 48) },
         HEARTBEAT_REQUEST_COMMAND = { type = 'string', value = randomString(32, 48) },
         REPORT_COMMAND = { type = 'string', value = randomString(32, 48) },
+        REQUEST_PLAYER_INFO_COMMAND = { type = 'string', value = randomString(32, 48) },
+
+        -- Command module
         MODULE_ID = { type = 'string', value = randomString(32, 48) },
+
+        -- Default settings
         TIME_TO_GREET = { type = 'number', value = 10 },
         TIME_TO_VERIFY = { type = 'number', value = 120 },
         TIME_TO_HEARTBEAT = { type = 'number', value = 20 },
         TIME_TO_TICK = { type = 'number', value = 5 },
         SHOULD_HEARTBEAT = { type = 'boolean', value = true },
         SUBMIT_TICKET_ON_KICK = { type = 'boolean', value = true },
+
     };
 
     local funcVariables = {
@@ -126,7 +136,7 @@ end
         local codeServerKey = DEFAULT_KEY_SERVER;
         local clientKeyValid = false;
         local serverKeyValid = false;
-        
+
         local clientKeyPath = 'keys/' .. variables.KEY .. '_client.lua';
         ModLoader.requestServerFile(mod, clientKeyPath, function(result, data)
             if result == ModLoader.RESULT_FILE_NOT_FOUND then
@@ -182,43 +192,54 @@ end
         local clientModulesCode = '';
 
         for moduleID, moduleCfg in pairs(variables.MODULES) do
-            info("Loading module: " .. moduleCfg.name .. '..');
-            local func = 'return function() end';
-            local moduleClientPath = 'modules/' .. moduleID .. '.lua';
-            ModLoader.requestServerFile(mod, moduleClientPath, function(result, data)
-                if result == ModLoader.RESULT_FILE_NOT_FOUND then
-                    info('The file "' .. moduleClientPath .. '" is missing.');
-                    return;
-                end
-                if not data or string.trim(data) == '' then
-                    info('The file "' .. moduleClientPath .. '" exists, but is empty. Using Fallback..');
-                    return;
-                end
-                -- Pre-escape any double-quotes for reapplciation when injected.
-                local code = string.gsub(minify(data), '"', '\\"');
-                info("Compiling module: " .. moduleCfg.name .. '..');
-                -- Test compiling and checking type for return of a function.
-                if type(loadstring(code)()) ~= "function" then
-                    info('The file "' .. moduleClientPath .. '" exists, but doesn\'t return a function. Using Fallback..');
-                    return;
-                end
-                -- Embed quotes in module code.
-                func = minify(code);
-            end);
 
-            if func then
-                local moduleCode = moduleID ..
-                    '={code=loadstring("' ..
-                    func ..
-                    '")(), options=' ..
-                    tableutils.tableToString(moduleCfg.options or {}) ..
-                    ',name="' .. moduleCfg.name .. '",runOnce=' .. tostring(moduleCfg.runOnce) .. '}';
-                if clientModulesCode == '' then
-                    clientModulesCode = moduleCode;
-                else
-                    clientModulesCode = clientModulesCode .. ',' .. moduleCode;
+            if moduleCfg.runOnce == nil then
+                moduleCfg.runOnce = false;
+            end
+
+            -- Skip disabled module(s).
+            if moduleCfg.enable == nil or moduleCfg.enable then
+                info("Loading module: " .. moduleCfg.name .. '..');
+                local func = 'return function() end';
+                local moduleClientPath = 'modules/' .. moduleID .. '.lua';
+                ModLoader.requestServerFile(mod, moduleClientPath, function(result, data)
+                    if result == ModLoader.RESULT_FILE_NOT_FOUND then
+                        info('The file "' .. moduleClientPath .. '" is missing.');
+                        return;
+                    end
+                    if not data or string.trim(data) == '' then
+                        info('The file "' .. moduleClientPath .. '" exists, but is empty. Using Fallback..');
+                        return;
+                    end
+                    -- Pre-escape any double-quotes for reapplciation when injected.
+                    data = string.gsub(data, '\\', '\\\\');
+                    local code = string.gsub(minify(data), '"', '\\"');
+                    info("Compiling module: " .. moduleCfg.name .. '..');
+                    -- Test compiling and checking type for return of a function.
+                    if type(loadstring(code)()) ~= "function" then
+                        info('The file "' ..
+                        moduleClientPath .. '" exists, but doesn\'t return a function. Using Fallback..');
+                        return;
+                    end
+                    -- Embed quotes in module code.
+                    func = minify(code);
+                end);
+                if func then
+                    local moduleCode = moduleID ..
+                        '={code=loadstring("' ..
+                        func ..
+                        '")(), options=' ..
+                        tableutils.tableToString(moduleCfg.options or {}) ..
+                        ',name="' .. moduleCfg.name .. '",runOnce=' .. tostring(moduleCfg.runOnce) .. '}';
+                    if clientModulesCode == '' then
+                        clientModulesCode = moduleCode;
+                    else
+                        clientModulesCode = clientModulesCode .. ',' .. moduleCode;
+                    end
+                    info("Module loaded: " .. moduleCfg.name);
                 end
-                info("Module loaded: " .. moduleCfg.name);
+            else
+                info("Skipping module: " .. moduleCfg.name .. ' (not enabled) ..');
             end
         end
 
