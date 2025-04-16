@@ -4,9 +4,13 @@
 --- @author asledgehammer, JabDoesThings 2025
 ---]]
 
+local DEBUG = false;
+
+local LuaNetwork = require 'asledgehammer/network/LuaNetworkEvents';
+local ZedUtils = require 'asledgehammer/util/ZedUtils';
+
 local ModLoader = require 'asledgehammer/modloader/ModLoader';
 local ZedCrypt = require 'asledgehammer/encryption/ZedCrypt';
-require 'asledgehammer/network/LuaNetworkEvents';
 require 'OptionScreens/MainScreen';
 
 local mod = 'EtherHammerX';
@@ -73,7 +77,7 @@ end
     end
 
     --- Protective padding for one-trigger self-removed functions.
-    Events.OnLuaNetworkConnected.Add(function () end);
+    Events.OnLuaNetworkConnected.Add(function() end);
     Events.OnLuaNetworkConnected.Add(function()
         ModLoader.requestServerFile('EtherHammerX', 'client', function(result, data)
             if result == ModLoader.RESULT_FILE_NOT_FOUND then
@@ -83,4 +87,10 @@ end
             loadstring(ZedCrypt.decrypt(data, '__EtherHammerX__'))();
         end);
     end);
+
+    if DEBUG then
+        LuaNetwork.addServerListener(function(module, command, args)
+            ZedUtils.printLuaCommand(module, command, nil, args);
+        end);
+    end
 end)();

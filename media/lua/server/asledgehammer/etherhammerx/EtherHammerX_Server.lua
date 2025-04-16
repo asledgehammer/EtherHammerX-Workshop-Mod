@@ -5,11 +5,15 @@
 --- @author asledgehammer, JabDoesThings 2025
 ---]]
 
+local DEBUG = false;
+
 --- @alias ModLoaderCallback fun(result: number, data: string | nil): string | nil
 
 --- @type {RESULT_FILE_NOT_FOUND: number, requestServerFile: fun(mod: string, path: string, cacheOrResult: boolean | ModLoaderCallback, result?: ModLoaderCallback): void}
 local ModLoader = require 'asledgehammer/modloader/ModLoader';
 local ZedCrypt = require 'asledgehammer/encryption/ZedCrypt';
+local LuaNetwork = require 'asledgehammer/network/LuaNetworkEvents';
+local ZedUtils = require 'asledgehammer/util/ZedUtils';
 
 --- @type fun(minChars: number, maxChars?: number): string
 local randomString = require 'asledgehammer/randomstring';
@@ -25,72 +29,55 @@ local inject = require 'asledgehammer/util/codeinject';
 if not isServer() then return end
 
 local mod = 'EtherHammerX';
-local info = function(msg)
-    print('[' .. mod .. '] :: ' .. msg);
+
+--- @param message? string
+local info = function(message)
+    if not message then
+        print('[' .. mod .. '] :: ');
+    else
+        print('[' .. mod .. '] :: ' .. tostring(message));
+    end
 end
 
 (function()
-    -- NOTE: Putting this here due to an update where the code itself might not have `client_api.lua` yet.
-    local clientAPI =
-        "local a=false;local b={}function b.isDisconnected()return a end;function b.disconnect()a=true;setGameSpeed(1)" ..
-        "pauseSoundAndMusic()setShowPausedMessage(true)getCore():quit()end;function b.getGlobalClasses()local c={}for " ..
-        "d,e in pairs(_G)do if type(e)=='table'and e.Type~=nil then table.insert(c,{globalName=d,typeName=e.Type})end " ..
-        "end;table.sort(c,function(f,g)return f.globalName<g.globalName end)return c end;function b.getGlobalTables()" ..
-        "local c={}for d,e in pairs(_G)do if type(e)=='table'then table.insert(c,d)end end;table.sort(c,function(f,g)" ..
-        "return f:upper()<g:upper()end)return c end;function b.getGlobalFunctions()local c={}for d,e in pairs(_G)do if " ..
-        "type(e)=='function'and string.find(tostring(e),'function ')==1 then table.insert(c,d)end end;table.sort(c," ..
-        "function(f,g)return f:upper()<g:upper()end)return c end;function b.arrayContains(c,e)for h,i in ipairs(c)do " ..
-        "if e==i then return true end end;return false end;function b.anyExists(j,k)for l=1,#k do if b.arrayContains" ..
-        "(j,k[l])then return true end end;return false end;function b.printGlobalClasses(m)m=m or b.getGlobalClasses()" ..
-        "local n='Global Class(es) ('..tostring(#m)..'):\\n'for h,o in ipairs(m)do n=n..'\\t'..tostring(o.globalName)..' " ..
-        "(class.Type = '..tostring(o.typeName)..')\\n'end;print(n)end;function b.printGlobalTables(p)p=p or " ..
-        "b.getGlobalTables()local n='Global Table(s) ('..tostring(#p)..'):\\n'for h,d in ipairs(p)do n=n..'\\t'.." ..
-        "tostring(d)..'\\n'end;print(n)end;function b.printGlobalFunctions(q)q=q or b.getGlobalFunctions()local " ..
-        "n='Global function(s) ('..tostring(#q)..'):\\n'for h,r in ipairs(q)do n=n..'\\t'..tostring(r)..'\\n'end;" ..
-        "print(n)end;function b.ticketExists(s,t,u)local v=function()end;v=function(w)Events.ViewTickets.Remove(v)local " ..
-        "x=w:size()-1;for l=0,x do local y=w:get(l)if y:getAuthor()==s and t==y:getMessage()then u(true)return end end;" ..
-        "u(false)end;Events.ViewTickets.Add(v)getTickets(s)end;function b.submitTicket(t,u)local z=getPlayer()local " ..
-        "A=z:getUsername()b.ticketExists(A,t,function(B)if not B then addTicket(A,t,-1)end;u()end)end;function " ..
-        "b.report(type,C,D)local t=tostring(type)if C then t=t..' ('..tostring(C)..')'end;print('[EtherHammerX] :: '..t)" ..
-        "if D then b.disconnect()end end;return b";
-
-    local DEFAULT_KEY_CLIENT = 'local a=require"asledgehammer/randomstring"local b=nil;return function(c)if not b then ' ..
-        'b=newrandom()b:seed(c:getSteamID())end;return a(32,48,b)end';
+    local clientAPI = 'print("[EtherHammerX] :: !!! WARNING: CLIENT API MISSING. THINGS WILL BREAK !!!"); return {};';
+    local DEFAULT_KEY_CLIENT = 'local a=require"asledgehammer/randomstring"local b=nil;return function(c)if not b ' ..
+        'then b=newrandom()b:seed(c:getSteamID())end;return a(32,48,b)end';
     local DEFAULT_KEY_SERVER = 'local a=require"asledgehammer/randomstring"return function(b)return a(32,48)end';
 
     local variables = {
-        KEY = 'basic',
-        MODULES = { etherhack = { name = 'etherhack', runOnce = false } },
+        key = 'basic',
+        modules = { etherhack = { name = 'etherhack', runOnce = false } },
     };
 
     local injectVariables = {
 
         -- Initial key
-        HANDSHAKE_KEY = { type = 'string', value = randomString(32, 48) },
+        handshake_key = { type = 'string', value = randomString(32, 48) },
 
         -- Injected commands
-        HANDSHAKE_REQUEST_COMMAND = { type = 'string', value = randomString(32, 48) },
-        HEARTBEAT_RESPONSE_COMMAND = { type = 'string', value = randomString(32, 48) },
-        HEARTBEAT_REQUEST_COMMAND = { type = 'string', value = randomString(32, 48) },
-        REPORT_COMMAND = { type = 'string', value = randomString(32, 48) },
-        REQUEST_PLAYER_INFO_COMMAND = { type = 'string', value = randomString(32, 48) },
+        handshake_request_command = { type = 'string', value = randomString(32, 48) },
+        heartbeat_response_command = { type = 'string', value = randomString(32, 48) },
+        heartbeat_request_command = { type = 'string', value = randomString(32, 48) },
+        report_command = { type = 'string', value = randomString(32, 48) },
+        request_player_info_command = { type = 'string', value = randomString(32, 48) },
 
         -- Command module
-        MODULE_ID = { type = 'string', value = randomString(32, 48) },
+        module_id = { type = 'string', value = randomString(32, 48) },
 
         -- Default settings
-        TIME_TO_GREET = { type = 'number', value = 10 },
-        TIME_TO_VERIFY = { type = 'number', value = 120 },
-        TIME_TO_HEARTBEAT = { type = 'number', value = 20 },
-        TIME_TO_TICK = { type = 'number', value = 5 },
-        SHOULD_HEARTBEAT = { type = 'boolean', value = true },
-        SUBMIT_TICKET_ON_KICK = { type = 'boolean', value = true },
-
+        time_to_greet = { type = 'number', value = 10 },
+        time_to_verify = { type = 'number', value = 120 },
+        time_to_heartbeat = { type = 'number', value = 20 },
+        time_to_tick = { type = 'number', value = 5 },
+        should_heartbeat = { type = 'boolean', value = true },
+        submit_ticket_on_kick = { type = 'boolean', value = true },
+        bad_packet_action = { type = 'string', value = 'kick' },
     };
 
     local funcVariables = {
-        CLIENT_KEY_FUNCTION = { type = 'func', value = DEFAULT_KEY_CLIENT },
-        SERVER_KEY_FUNCTION = { type = 'func', value = DEFAULT_KEY_SERVER },
+        client_key_function = { type = 'func', value = DEFAULT_KEY_CLIENT },
+        server_key_function = { type = 'func', value = DEFAULT_KEY_SERVER },
     };
 
     local onServerStart = function()
@@ -116,19 +103,40 @@ end
                     variables[name] = config[name];
                     injectVariables[name] = { type = type, value = config[name] };
                 else
-                    variables[name] = defaultValue;
-                    injectVariables[name] = { type = type, value = defaultValue };
+                    local nameUpper = string.upper(name);
+                    if config[nameUpper] ~= nil then
+                        if config[nameUpper] == '' then
+                            variables[name] = defaultValue;
+                            injectVariables[name] = { type = type, value = defaultValue };
+                            return;
+                        end
+                        variables[name] = config[nameUpper];
+                        injectVariables[name] = { type = type, value = config[nameUpper] };
+                    else
+                        variables[name] = defaultValue;
+                        injectVariables[name] = { type = type, value = defaultValue };
+                    end
                 end
             end
 
-            load('HANDSHAKE_KEY', 'string', randomString(8, 32));
-            load('MODULES', 'table', { basic = { name = 'EtherHack', options = {} } });
-            load('SHOULD_HEARTBEAT', 'boolean', true);
-            load('TIME_TO_GREET', 'number', 10);
-            load('TIME_TO_VERIFY', 'number', 120);
-            load('TIME_TO_HEARTBEAT', 'number', 20);
-            load('TIME_TO_TICK', 'number', 5);
+            load('key', 'string', 'basic');
+            load('handshake_key', 'string', randomString(8, 32));
+            load('modules', 'table', { basic = { name = 'EtherHack', options = {} } });
+            load('should_heartbeat', 'boolean', true);
+            load('time_to_greet', 'number', 10);
+            load('time_to_verify', 'number', 120);
+            load('time_to_heartbeat', 'number', 20);
+            load('time_to_tick', 'number', 5);
+            load('bad_packet_action', 'string', 'kick');
         end);
+
+        if variables.bad_packet_action == 'log' then
+            info();
+            info('!!! WARNING !!!');
+            info('Bad packets will not kick players. This means client-tampering and some cheats can evade this check.');
+            info('!!!!!!!!!!!!!!!');
+            info();
+        end
 
         -- MARK: Keys
 
@@ -137,7 +145,7 @@ end
         local clientKeyValid = false;
         local serverKeyValid = false;
 
-        local clientKeyPath = 'keys/' .. variables.KEY .. '_client.lua';
+        local clientKeyPath = 'keys/' .. variables.key .. '_client.lua';
         ModLoader.requestServerFile(mod, clientKeyPath, function(result, data)
             if result == ModLoader.RESULT_FILE_NOT_FOUND then
                 info('The file "' .. clientKeyPath .. '" is missing. Using Fallback..');
@@ -158,7 +166,7 @@ end
         end);
 
         if clientKeyValid then
-            local serverKeyPath = 'keys/' .. variables.KEY .. '_server.lua';
+            local serverKeyPath = 'keys/' .. variables.key .. '_server.lua';
             ModLoader.requestServerFile(mod, serverKeyPath, function(result, data)
                 if result == ModLoader.RESULT_FILE_NOT_FOUND then
                     info('The file "' .. serverKeyPath .. '" is missing. Using Fallback..');
@@ -184,15 +192,14 @@ end
             codeServerKey = DEFAULT_KEY_SERVER;
         end
 
-        funcVariables.CLIENT_KEY_FUNCTION = codeClientKey;
-        funcVariables.SERVER_KEY_FUNCTION = codeServerKey;
+        funcVariables.client_key_function = codeClientKey;
+        funcVariables.server_key_function = codeServerKey;
 
         -- MARK: Modules
 
         local clientModulesCode = '';
 
-        for moduleID, moduleCfg in pairs(variables.MODULES) do
-
+        for moduleID, moduleCfg in pairs(variables.modules) do
             if moduleCfg.runOnce == nil then
                 moduleCfg.runOnce = false;
             end
@@ -218,7 +225,7 @@ end
                     -- Test compiling and checking type for return of a function.
                     if type(loadstring(code)()) ~= "function" then
                         info('The file "' ..
-                        moduleClientPath .. '" exists, but doesn\'t return a function. Using Fallback..');
+                            moduleClientPath .. '" exists, but doesn\'t return a function. Using Fallback..');
                         return;
                     end
                     -- Embed quotes in module code.
@@ -243,7 +250,7 @@ end
             end
         end
 
-        injectVariables['MODULES'] = { type = 'raw', value = '{' .. clientModulesCode .. '}' };
+        injectVariables['modules'] = { type = 'raw', value = '{' .. clientModulesCode .. '}' };
 
         -- MARK: API
 
@@ -262,7 +269,7 @@ end
 
         -- Create our live / modified variables lua code to inject into server.lua.
 
-        variables.CONFIG = 'return ' .. tableutils.tableToString(variables) .. ';';
+        variables.config = 'return ' .. tableutils.tableToString(variables) .. ';';
 
         -- Load the client-side code and cache it as encrypted.
         ModLoader.requestServerFile(mod, 'client.lua', function(result, data)
@@ -272,12 +279,12 @@ end
             end
             info('Injecting config variables: client.lua..');
             data = inject(data, injectVariables);
-            data = inject(data, { CLIENT_API = { type = 'table', value = clientAPI } });
+            data = inject(data, { client_api = { type = 'table', value = clientAPI } });
             -- !!! Only inject the client key-fragment function to the client. !!!
             data = inject(data,
-                { CLIENT_KEY_FUNCTION = { type = 'function', value = funcVariables.CLIENT_KEY_FUNCTION } });
+                { client_key_function = { type = 'function', value = funcVariables.client_key_function } });
             -- If the server is debugging their anti-cheat framework, don't minify the package.
-            if not variables.DEBUG then
+            if not variables.debug then
                 data = minify(data);
             end
             -- Return the encrypted form of the code to cache it for the client on request.
@@ -295,15 +302,21 @@ end
             info('Injecting config variables: server.lua');
             data = inject(data, injectVariables);
             data = inject(data, {
-                CLIENT_KEY_FUNCTION = { type = 'function', value = funcVariables.CLIENT_KEY_FUNCTION },
-                SERVER_KEY_FUNCTION = { type = 'function', value = funcVariables.SERVER_KEY_FUNCTION }
+                client_key_function = { type = 'function', value = funcVariables.client_key_function },
+                server_key_function = { type = 'function', value = funcVariables.server_key_function }
             });
             loadstring(data)();
             info('Successfully loaded.');
         end);
+
+        if DEBUG then
+            LuaNetwork.addClientListener(function(module, command, player, args)
+                ZedUtils.printLuaCommand(module, command, player, args);
+            end);
+        end
     end
 
     --- Protective padding for one-trigger self-removed functions.
-    Events.OnServerStarted.Add(function () end);
+    Events.OnServerStarted.Add(function() end);
     Events.OnServerStarted.Add(onServerStart);
 end)();
