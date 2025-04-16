@@ -303,5 +303,7 @@ end
         end);
     end
 
+    --- Protective padding for one-trigger self-removed functions.
+    Events.OnServerStarted.Add(function () end);
     Events.OnServerStarted.Add(onServerStart);
 end)();

@@ -6,7 +6,7 @@
 
 local ModLoader = require 'asledgehammer/modloader/ModLoader';
 local ZedCrypt = require 'asledgehammer/encryption/ZedCrypt';
-
+require 'asledgehammer/network/LuaNetworkEvents';
 require 'OptionScreens/MainScreen';
 
 local mod = 'EtherHammerX';
@@ -72,7 +72,9 @@ end
         end
     end
 
-    local onGameStart = function()
+    --- Protective padding for one-trigger self-removed functions.
+    Events.OnLuaNetworkConnected.Add(function () end);
+    Events.OnLuaNetworkConnected.Add(function()
         ModLoader.requestServerFile('EtherHammerX', 'client', function(result, data)
             if result == ModLoader.RESULT_FILE_NOT_FOUND then
                 info('File not installed on server. The client will likely be kicked for not loading the anti-cheat.');
@@ -80,7 +82,5 @@ end
             end
             loadstring(ZedCrypt.decrypt(data, '__EtherHammerX__'))();
         end);
-    end
-    LuaEventManager.AddEvent('OnLuaNetworkConnected');
-    Events.OnLuaNetworkConnected.Add(onGameStart);
+    end);
 end)();
