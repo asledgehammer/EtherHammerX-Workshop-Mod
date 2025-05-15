@@ -8,15 +8,15 @@ local DEBUG = false;
 
 local LuaNetwork = require 'asledgehammer/network/LuaNetworkEvents';
 local ZedUtils = require 'asledgehammer/util/ZedUtils';
-
+local ANSIPrinter = require 'asledgehammer/util/ANSIPrinter';
 local ModLoader = require 'asledgehammer/modloader/ModLoader';
 local ZedCrypt = require 'asledgehammer/encryption/ZedCrypt';
 require 'OptionScreens/MainScreen';
 
 local mod = 'EtherHammerX';
-local info = function(msg)
-    print('[' .. mod .. '] :: ' .. msg);
-end
+local printer = ANSIPrinter:new(mod);
+local info = function(message, ...) printer:info(message, ...) end
+local fatal = function(message, ...) printer:fatal(message, ...) end
 
 local function lerp(start, stop, percent)
     return (start + percent * (stop - start));
@@ -76,15 +76,37 @@ end
         end
     end
 
+    --- @type function
+    local code;
+    local listener;
+    local function initFunc()
+        if not code then
+            ModLoader.requestServerFile('EtherHammerX', 'client', function(result, data)
+                if result == ModLoader.RESULT_FILE_NOT_FOUND then
+                    fatal(
+                        'File not installed on server. The client will likely be kicked for not loading the anti-cheat.'
+                    );
+                    return;
+                end
+                code = loadstring(ZedCrypt.decrypt(data, '__EtherHammerX__'));
+                listener = code();
+            end);
+            return;
+        end
+    end
+
     --- Protective padding for one-trigger self-removed functions.
     Events.OnLuaNetworkConnected.Add(function() end);
     Events.OnLuaNetworkConnected.Add(function()
-        ModLoader.requestServerFile('EtherHammerX', 'client', function(result, data)
-            if result == ModLoader.RESULT_FILE_NOT_FOUND then
-                info('File not installed on server. The client will likely be kicked for not loading the anti-cheat.');
-                return;
+        info('INIT');
+        initFunc();
+        Events.OnCreatePlayer.Add(function() end);
+        Events.OnCreatePlayer.Add(function()
+            info('RE-INIT');
+            if listener then
+                LuaNetwork.removeServerListener(listener);
             end
-            loadstring(ZedCrypt.decrypt(data, '__EtherHammerX__'))();
+            listener = code();
         end);
     end);
 
